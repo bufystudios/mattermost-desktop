@@ -24,6 +24,15 @@ const bufyFiles = [
     'node_modules/uiohook-napi/dist/**/*',
     'node_modules/uiohook-napi/prebuilds/**/*.node',
     'node_modules/node-gyp-build/**/*',
+
+    // dbus-native (pure JS, MIT) for the Wayland GlobalShortcuts portal backend, and its only dependency chain
+    'node_modules/dbus-native/package.json',
+    'node_modules/dbus-native/LICENSE',
+    'node_modules/dbus-native/index.js',
+    'node_modules/dbus-native/lib/**/*.{js,json}',
+    'node_modules/xml2js/**/*',
+    'node_modules/xml2js/node_modules/xmlbuilder/**/*', // nested copy (v11), xml2js loads it
+    'node_modules/sax/**/*',
 ];
 
 // keep upstream's `{from: 'dist'}` file set last

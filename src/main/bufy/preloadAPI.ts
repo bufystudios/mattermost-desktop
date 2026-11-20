@@ -43,10 +43,12 @@ export function createBufyAPI(): BufyAPI {
         captureNextKey: (opts) => invoke(CH.CAPTURE_NEXT_KEY, opts ?? {}),
         cancelCaptureKey: () => invoke(CH.CANCEL_CAPTURE),
         openAccessibilitySettings: () => invoke(CH.OPEN_ACCESSIBILITY_SETTINGS),
+        openShortcutSettings: () => invoke(CH.OPEN_SHORTCUT_SETTINGS),
 
         registerShortcut: (opts) => invoke(CH.REGISTER_SHORTCUT, opts),
         unregisterShortcut: (id) => invoke(CH.UNREGISTER_SHORTCUT, id),
         onShortcut: (listener) => createListener(CH.EVENT_SHORTCUT, (id: never) => listener(id)),
+        onShortcutTriggerChanged: (listener) => createListener(CH.EVENT_TRIGGER_CHANGED, (change: never) => listener(change)),
 
         setVoiceStatus: (status) => invoke(CH.SET_VOICE_STATUS, status),
         onTrayAction: (listener) => createListener(CH.EVENT_TRAY_ACTION, (action: never) => listener(action)),

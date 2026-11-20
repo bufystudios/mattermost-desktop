@@ -59,7 +59,7 @@ chmod +x mattermost-desktop-bufy-6.4.0-linux-x86_64.AppImage && ./mattermost-des
 ```
 
 The app keeps using `~/.config/Mattermost` (same as the stock app), so servers and sessions carry over. The AppImage needs FUSE 2
-(`libfuse2`) or `--appimage-extract-and-run`. Global keys need an **X11 session** (see below). The deb depends on `libxt6`, the
+(`libfuse2`) or `--appimage-extract-and-run`. Global keys work on X11, and on Wayland through the desktop portal (see below). The deb depends on `libxt6`, the
 rpm on `libXt` (pulled in automatically; the AppImage/tar.gz need it installed: `apt install libxt6` / `dnf install libXt`).
 
 ### Windows
@@ -85,7 +85,8 @@ register the `mattermost://` handler and share one single-instance lock).
 | macOS | **Screen Recording** | Privacy & Security → Screen Recording. Required for screen sharing (and window enumeration for the share border). Asked on first share. |
 | macOS | Microphone / Camera | Asked on first use (Info.plist strings are upstream's). |
 | macOS | after a rebuild | Ad-hoc signed apps get a new identity for every build: remove the old *Mattermost* entries (−) in Accessibility/Screen Recording and re-add the app, otherwise macOS keeps showing it as enabled but denies it. |
-| Linux | X11 session | **Wayland does not allow global key hooks**: `globalKeys` is `false` (reason `wayland`) and plugins should use in-window keys. Log in with an *X11/Xorg* session (GNOME: gear icon on the login screen → "GNOME on Xorg") if you need global push-to-talk. Screen sharing itself works on Wayland through the portal. |
+| Linux | X11 or Wayland | **X11**: native hook, nothing to do. **Wayland**: push-to-talk and shortcuts go through xdg-desktop-portal (KDE Plasma, GNOME 48+): the system may ask once to confirm the shortcuts, and the user can change the keys in the system settings (see [wayland.md](wayland.md)). Without a GlobalShortcuts portal `globalKeys` is `false` and plugins should use in-window keys (or log in to an X11/Xorg session). Screen sharing itself works on Wayland through the portal. |
+| Linux | `.desktop` file | Wayland shortcuts are remembered per app id `com.Mattermost.Desktop`. The deb/rpm install the `.desktop` file; for the AppImage/tar.gz the app writes a hidden one to `~/.local/share/applications/` on first use ([wayland.md](wayland.md#app-id-so-the-compositor-remembers-the-keys)). |
 | Linux | tray | Needs a StatusNotifier/AppIndicator host (GNOME: the *AppIndicator* extension) for tray status. |
 | Windows | – | No permission prompts. Push-to-talk is not delivered while an *elevated* (run-as-administrator) window has focus. Exclusive-fullscreen games hide the share border. |
 

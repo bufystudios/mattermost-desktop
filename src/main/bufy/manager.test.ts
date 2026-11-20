@@ -5,6 +5,7 @@ import {EventEmitter} from 'events';
 
 import {BufyManager} from './manager';
 import {BUFY_API_VERSION, BUFY_CHANNELS as CH} from './shared';
+import {FakePortal} from './testing/fakePortalBus';
 import {getTrayVoiceStatus} from './trayStatus';
 
 type AnyFn = (...args: unknown[]) => unknown;
@@ -29,6 +30,7 @@ const mockViewManager = new EventEmitter();
 const mockResolve = jest.fn();
 const mockSystemPrefs = {isTrustedAccessibilityClient: jest.fn().mockReturnValue(true)};
 const mockOverlayShow = jest.fn();
+const mockConnectBus = jest.fn();
 
 jest.mock('electron', () => ({
     app: {on: (ev: string, cb: () => void) => mockAppEmitter.on(ev, cb)},
@@ -66,6 +68,7 @@ jest.mock('./overlayWindow', () => ({
         return {setBounds: jest.fn(), showInactive: jest.fn(), hide: jest.fn(), destroy: jest.fn(), isDestroyed: () => false, isVisible: () => true};
     }),
 }));
+jest.mock('./portalBus', () => ({connectSessionBus: (...a: unknown[]) => mockConnectBus(...a)}));
 jest.mock('./windowBounds', () => ({createWindowBoundsProvider: () => undefined}));
 jest.mock('uiohook-napi', () => ({
     uIOhook: {
@@ -102,6 +105,8 @@ describe('bufy/BufyManager', () => {
         Object.keys(mockHookListeners).forEach((k) => delete mockHookListeners[k]);
         mockAppEmitter.removeAllListeners();
         mockViewManager.removeAllListeners();
+        mockConnectBus.mockReset();
+        mockConnectBus.mockRejectedValue(new Error('no session bus'));
         mockHook.on.mockClear();
         mockHook.start.mockClear();
         mockHook.stop.mockClear();
@@ -136,7 +141,7 @@ describe('bufy/BufyManager', () => {
 
     it('registers every channel exactly once and is idempotent', () => {
         const count = mockHandlers.size;
-        expect(count).toBe(11);
+        expect(count).toBe(12);
         mgr.init();
         expect(mockHandlers.size).toBe(count);
     });
@@ -153,6 +158,7 @@ describe('bufy/BufyManager', () => {
             [CH.CAPTURE_NEXT_KEY, [{}]],
             [CH.CANCEL_CAPTURE, []],
             [CH.OPEN_ACCESSIBILITY_SETTINGS, []],
+            [CH.OPEN_SHORTCUT_SETTINGS, []],
             [CH.SET_VOICE_STATUS, [{connected: true}]],
         ])('%s rejects untrusted senders and has no side effects', async (channel, args) => {
             const untrusted = makeWebContents(99);
@@ -179,15 +185,85 @@ describe('bufy/BufyManager', () => {
                 overlay: true,
                 overlayExcludedFromCapture: false,
                 globalKeys: true,
+                globalKeysBackend: 'uiohook',
+                keyCapture: true,
                 globalKeysPermission: 'not-required',
                 shortcuts: true,
                 tray: true,
             });
         });
 
-        it('reports Wayland as globalKeys:false with a reason', async () => {
+        it('reports Wayland without a portal as globalKeys:false with a precise reason and no shortcuts', async () => {
             process.env.XDG_SESSION_TYPE = 'wayland';
-            expect(await call(CH.GET_CAPABILITIES, wcA)).toMatchObject({globalKeys: false, globalKeysReason: 'wayland'});
+            expect(await call(CH.GET_CAPABILITIES, wcA)).toMatchObject({globalKeys: false, globalKeysBackend: null, globalKeysReason: 'wayland-no-portal', keyCapture: false, shortcuts: false});
+            expect(await call(CH.REGISTER_PTT, wcA, {key: 'F13'})).toMatchObject({ok: false, error: 'unsupported'});
+            expect(mockHook.start).not.toHaveBeenCalled();
+        });
+
+        describe('Wayland with the GlobalShortcuts portal', () => {
+            let portal: FakePortal;
+            beforeEach(() => {
+                process.env.XDG_SESSION_TYPE = 'wayland';
+                portal = new FakePortal();
+                mockConnectBus.mockImplementation(async () => {
+                    portal.connectionClosed = false;
+                    return portal.bus;
+                });
+            });
+
+            it('reports the portal backend', async () => {
+                expect(await call(CH.GET_CAPABILITIES, wcA)).toMatchObject({globalKeys: true, globalKeysBackend: 'portal', keyCapture: false, shortcuts: true});
+            });
+
+            it('push-to-talk: resolves with the bound trigger; down/up and trigger changes reach only the owner', async () => {
+                portal.triggerFor = () => 'Ctrl+Alt+P';
+                expect(await call(CH.REGISTER_PTT, wcA, {key: 'KeyP', modifiers: ['ctrl', 'alt']})).toEqual({ok: true, backend: 'portal', trigger: 'Ctrl+Alt+P', requestedTrigger: 'CTRL+ALT+p'});
+                portal.activate('ptt');
+                portal.deactivate('ptt');
+                expect(wcA.send).toHaveBeenCalledWith(CH.EVENT_PTT_DOWN);
+                expect(wcA.send).toHaveBeenCalledWith(CH.EVENT_PTT_UP);
+                portal.shortcutsChanged([['ptt', {trigger_description: 'F14'}]]);
+                expect(wcA.send).toHaveBeenCalledWith(CH.EVENT_TRIGGER_CHANGED, {id: 'ptt', trigger: 'F14'});
+                expect(wcB.send).not.toHaveBeenCalled();
+                expect(mockHook.start).not.toHaveBeenCalled();
+            });
+
+            it('toggles use the portal, not Electron globalShortcut', async () => {
+                const res = await call(CH.REGISTER_SHORTCUT, wcB, {id: 'toggle-mute', accelerator: 'CommandOrControl+Shift+M'});
+                expect(res).toMatchObject({ok: true, backend: 'portal'});
+                expect(mockShortcuts.size).toBe(0);
+                portal.activate('toggle-mute');
+                expect(wcB.send).toHaveBeenCalledWith(CH.EVENT_SHORTCUT, 'toggle-mute');
+                expect(wcA.send).not.toHaveBeenCalled();
+            });
+
+            it('captureNextKey answers unsupported-on-wayland even for an unfocused page', async () => {
+                const bg = makeWebContents(3, false);
+                expect(await call(CH.CAPTURE_NEXT_KEY, bg, {})).toMatchObject({ok: false, error: 'unsupported-on-wayland'});
+            });
+
+            it('releases a held key and closes the session when the view goes away', async () => {
+                await call(CH.REGISTER_PTT, wcA, {key: 'F13'});
+                portal.activate('ptt');
+                wcA.emit('destroyed');
+                expect(wcA.send).toHaveBeenCalledWith(CH.EVENT_PTT_UP);
+                await new Promise((r) => setTimeout(r, 10));
+                expect(portal.closedSessions).toEqual(portal.sessions);
+            });
+
+            it('app quit releases the held key and closes session + connection', async () => {
+                await call(CH.REGISTER_PTT, wcA, {key: 'F13'});
+                portal.activate('ptt');
+                mockAppEmitter.emit('will-quit');
+                expect(wcA.send).toHaveBeenCalledWith(CH.EVENT_PTT_UP);
+                await new Promise((r) => setTimeout(r, 10));
+                expect(portal.closed).toBe(true);
+            });
+
+            it('openShortcutSettings opens the compositor settings', async () => {
+                await call(CH.REGISTER_PTT, wcA, {key: 'F13'});
+                expect(await call(CH.OPEN_SHORTCUT_SETTINGS, wcA)).toEqual({ok: true});
+            });
         });
 
         it('reports macOS permission denied and refuses PTT until granted', async () => {
@@ -199,7 +275,7 @@ describe('bufy/BufyManager', () => {
 
             mockSystemPrefs.isTrustedAccessibilityClient.mockReturnValue(true);
             expect(await call(CH.GET_CAPABILITIES, wcA)).toMatchObject({globalKeys: true, globalKeysPermission: 'granted'});
-            expect(await call(CH.REGISTER_PTT, wcA, {key: 'Space'})).toEqual({ok: true});
+            expect(await call(CH.REGISTER_PTT, wcA, {key: 'Space'})).toEqual({ok: true, backend: 'uiohook'});
         });
 
         it('tray capability follows the tray icon', async () => {
@@ -238,7 +314,7 @@ describe('bufy/BufyManager', () => {
 
     describe('event routing', () => {
         it('push-to-talk events only reach the registering view', async () => {
-            expect(await call(CH.REGISTER_PTT, wcA, {key: 'Mouse4'})).toEqual({ok: true});
+            expect(await call(CH.REGISTER_PTT, wcA, {key: 'Mouse4'})).toEqual({ok: true, backend: 'uiohook'});
             emitHook('mousedown', {button: 4});
             emitHook('mouseup', {button: 4});
             expect(wcA.send.mock.calls).toEqual([[CH.EVENT_PTT_DOWN], [CH.EVENT_PTT_UP]]);
@@ -246,7 +322,7 @@ describe('bufy/BufyManager', () => {
         });
 
         it('shortcut events carry the plugin id and only reach the owner', async () => {
-            expect(await call(CH.REGISTER_SHORTCUT, wcB, {id: 'toggle-mute', accelerator: 'CommandOrControl+Shift+M'})).toEqual({ok: true});
+            expect(await call(CH.REGISTER_SHORTCUT, wcB, {id: 'toggle-mute', accelerator: 'CommandOrControl+Shift+M'})).toEqual({ok: true, backend: 'electron'});
             mockShortcuts.get('commandorcontrol+shift+m')!();
             expect(wcB.send).toHaveBeenCalledWith(CH.EVENT_SHORTCUT, 'toggle-mute');
             expect(wcA.send).not.toHaveBeenCalled();

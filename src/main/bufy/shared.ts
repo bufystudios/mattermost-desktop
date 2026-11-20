@@ -4,7 +4,7 @@
 // Bufy fork: types and IPC channel names shared by the main process and the preload script.
 // This file must stay free of Electron/Node imports so the preload bundle can use it.
 
-export const BUFY_API_VERSION = '1.0.0';
+export const BUFY_API_VERSION = '1.1.0';
 
 export const BUFY_CHANNELS = {
     GET_CAPABILITIES: 'bufy:get-capabilities',
@@ -17,12 +17,14 @@ export const BUFY_CHANNELS = {
     CAPTURE_NEXT_KEY: 'bufy:capture-next-key',
     CANCEL_CAPTURE: 'bufy:cancel-capture',
     OPEN_ACCESSIBILITY_SETTINGS: 'bufy:open-accessibility-settings',
+    OPEN_SHORTCUT_SETTINGS: 'bufy:open-shortcut-settings',
     SET_VOICE_STATUS: 'bufy:set-voice-status',
 
     // main -> renderer events
     EVENT_PTT_DOWN: 'bufy:event:ptt-down',
     EVENT_PTT_UP: 'bufy:event:ptt-up',
     EVENT_SHORTCUT: 'bufy:event:shortcut',
+    EVENT_TRIGGER_CHANGED: 'bufy:event:trigger-changed',
     EVENT_TRAY_ACTION: 'bufy:event:tray-action',
     EVENT_SHARE_BORDER_LOST: 'bufy:event:share-border-lost',
 } as const;
@@ -32,6 +34,7 @@ export type BufyErrorCode =
     | 'invalid-argument' // validation failed
     | 'rate-limited'
     | 'unsupported' // feature not available on this platform / session
+    | 'unsupported-on-wayland' // needs a global input hook, which Wayland does not allow (captureNextKey)
     | 'permission-denied' // OS permission missing (macOS Accessibility)
     | 'source-not-found' // desktopCapturer id did not match any screen/window
     | 'in-use' // key/accelerator already registered by someone else
@@ -46,6 +49,8 @@ export type BufyFailure = {ok: false; error: BufyErrorCode; message?: string};
 export type BufyResult<T = unknown> = BufyOk<T> | BufyFailure;
 
 export type ModifierName = 'ctrl' | 'alt' | 'shift' | 'meta';
+
+export type GlobalKeysBackend = 'uiohook' | 'portal';
 
 export type BufyCapabilities = {
 
@@ -65,8 +70,22 @@ export type BufyCapabilities = {
     /** Native global keyboard/mouse hook usable (push-to-talk, captureNextKey). */
     globalKeys: boolean;
 
-    /** Why `globalKeys` is false (e.g. `wayland`, `no-display`, `permission-denied`, `native-module-failed`). */
+    /**
+     * Which mechanism delivers push-to-talk / global shortcuts: `uiohook` (native hook: Windows, macOS, X11) or
+     * `portal` (xdg-desktop-portal GlobalShortcuts: Linux Wayland, the compositor owns the key assignment).
+     * `null` when `globalKeys` is false.
+     */
+    globalKeysBackend: GlobalKeysBackend | null;
+
+    /**
+     * Why `globalKeys` is false: `no-display`, `permission-denied`, `native-module-failed`, or on Wayland
+     * `wayland-no-portal` (no portal / no session bus), `wayland-no-global-shortcuts` (portal without the
+     * GlobalShortcuts interface), `wayland-no-app-id` (no `.desktop` file for the app id), `wayland-dbus-failed`.
+     */
     globalKeysReason?: string;
+
+    /** `captureNextKey` works (`uiohook` backend only; on the portal backend it returns `unsupported-on-wayland`). */
+    keyCapture: boolean;
 
     /** macOS Accessibility permission state; `not-required` elsewhere. */
     globalKeysPermission: 'granted' | 'denied' | 'not-required';
@@ -108,6 +127,32 @@ export type PushToTalkOptions = {
     modifiers?: ModifierName[];
 };
 
+/**
+ * Result of `registerPushToTalk` / `registerShortcut`. With the `portal` backend the compositor shows its own
+ * confirmation dialog (the promise resolves after the user answered it) and may bind a different key than requested:
+ * `trigger` is the human readable description of what is *actually* bound (e.g. `Ctrl+Alt+P`).
+ */
+export type BindingInfo = {
+
+    /** `uiohook`/`portal` as in `getCapabilities().globalKeysBackend`; `electron` = Electron globalShortcut (toggles). */
+    backend: GlobalKeysBackend | 'electron';
+
+    /** Portal backend: what the compositor bound, as it displays it. Absent for `uiohook` (it is what you asked for). */
+    trigger?: string;
+
+    /** Portal backend: the key we suggested to the compositor (absent for mouse buttons, which the portal cannot express). */
+    requestedTrigger?: string;
+};
+
+export type TriggerChange = {
+
+    /** Shortcut id; `ptt` for push-to-talk. */
+    id: string;
+
+    /** New trigger description; empty when the shortcut is no longer bound (cleared by the user, session lost). */
+    trigger: string;
+};
+
 export type CapturedKey = {
     key: string;
     modifiers: ModifierName[];
@@ -147,7 +192,7 @@ export type BufyAPI = {
     hideShareBorder(): Promise<BufyResult>;
     onShareBorderLost(listener: () => void): () => void;
 
-    registerPushToTalk(opts: PushToTalkOptions): Promise<BufyResult>;
+    registerPushToTalk(opts: PushToTalkOptions): Promise<BufyResult<BindingInfo>>;
     unregisterPushToTalk(): Promise<BufyResult>;
     onPttDown(listener: () => void): () => void;
     onPttUp(listener: () => void): () => void;
@@ -155,9 +200,15 @@ export type BufyAPI = {
     cancelCaptureKey(): Promise<BufyResult>;
     openAccessibilitySettings(): Promise<BufyResult>;
 
-    registerShortcut(opts: ShortcutOptions): Promise<BufyResult>;
+    /** Portal backend: opens the compositor's own shortcut settings for this app (change/clear keys). */
+    openShortcutSettings(): Promise<BufyResult>;
+
+    registerShortcut(opts: ShortcutOptions): Promise<BufyResult<BindingInfo>>;
     unregisterShortcut(id: string): Promise<BufyResult>;
     onShortcut(listener: (id: string) => void): () => void;
+
+    /** Portal backend: the user (re)assigned or cleared a key in the system settings. */
+    onShortcutTriggerChanged(listener: (change: TriggerChange) => void): () => void;
 
     setVoiceStatus(status: VoiceStatus): Promise<BufyResult>;
     onTrayAction(listener: (action: TrayAction) => void): () => void;

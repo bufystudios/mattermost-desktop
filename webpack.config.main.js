@@ -18,6 +18,7 @@ module.exports = merge(base, {
         'cf-prefs': 'require("cf-prefs")',
         koffi: 'require("koffi")',
         'uiohook-napi': 'require("uiohook-napi")', // [bufy]
+        'dbus-native': 'require("dbus-native")', // [bufy] pure JS, but loaded lazily at runtime (Wayland portal backend)
     },
     externalsPresets: {
         electronMain: true,

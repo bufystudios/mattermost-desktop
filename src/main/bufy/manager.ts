@@ -19,13 +19,17 @@ import ViewManager from 'common/views/viewManager';
 
 import {GlobalKeys} from './globalKeys';
 import type {HookLike} from './globalKeys';
+import {KeysBackend} from './keysBackend';
 import {ShareBorder} from './overlay';
 import {createOverlayWindow} from './overlayWindow';
+import {connectSessionBus} from './portalBus';
+import {PortalKeys} from './portalKeys';
 import {RateLimiter} from './rateLimiter';
 import {resolveTrustedSender} from './security';
 import type {TrustedSender} from './security';
 import {BUFY_API_VERSION, BUFY_CHANNELS as CH, LIMITS} from './shared';
 import type {
+    BindingInfo,
     BufyCapabilities,
     BufyFailure,
     BufyResult,
@@ -62,8 +66,7 @@ type VoidFn = () => void;
 export class BufyManager {
     private initialized = false;
     private followsWindow = false;
-    private globalKeys?: GlobalKeys;
-    private shortcuts?: ShortcutRegistry;
+    private keys?: KeysBackend;
     private overlay?: ShareBorder;
     private watched = new Map<number, VoidFn>();
     private viewOwners = new Map<string, Set<number>>();
@@ -76,7 +79,7 @@ export class BufyManager {
         }
         this.initialized = true;
 
-        this.globalKeys = new GlobalKeys({
+        const uiohook = new GlobalKeys({
             platform: process.platform,
             env: process.env,
 
@@ -87,7 +90,14 @@ export class BufyManager {
             },
             isAccessibilityTrusted: () => systemPreferences.isTrustedAccessibilityClient(false),
         });
-        this.shortcuts = new ShortcutRegistry(globalShortcut, (ownerId, id) => this.sendTo(ownerId, CH.EVENT_SHORTCUT, id));
+        const shortcuts = new ShortcutRegistry(globalShortcut, (ownerId, id) => this.sendTo(ownerId, CH.EVENT_SHORTCUT, id));
+
+        // Wayland: push-to-talk and shortcuts go through xdg-desktop-portal (D-Bus via dbus-native, loaded lazily).
+        const portal = new PortalKeys({
+            connect: () => connectSessionBus(),
+            emitTrigger: (ownerId, change) => this.sendTo(ownerId, CH.EVENT_TRIGGER_CHANGED, change),
+        });
+        this.keys = new KeysBackend({platform: process.platform, env: process.env, uiohook, portal, shortcuts});
         const boundsProvider = createWindowBoundsProvider(
             process.platform,
             process.env,
@@ -117,6 +127,7 @@ export class BufyManager {
         ipcMain.handle(CH.CAPTURE_NEXT_KEY, this.guard(this.handleCaptureNextKey));
         ipcMain.handle(CH.CANCEL_CAPTURE, this.guard(this.handleCancelCapture));
         ipcMain.handle(CH.OPEN_ACCESSIBILITY_SETTINGS, this.guard(this.handleOpenAccessibilitySettings));
+        ipcMain.handle(CH.OPEN_SHORTCUT_SETTINGS, this.guard(this.handleOpenShortcutSettings));
         ipcMain.handle(CH.SET_VOICE_STATUS, this.guard(this.handleSetVoiceStatus));
 
         ViewManager.on(VIEW_REMOVED, this.handleViewRemoved);
@@ -125,8 +136,7 @@ export class BufyManager {
     };
 
     dispose = () => {
-        this.globalKeys?.dispose();
-        this.shortcuts?.dispose();
+        this.keys?.dispose();
         this.overlay?.dispose();
         clearTrayVoiceStatus();
         this.watched.forEach((unwatch) => unwatch());
@@ -135,8 +145,7 @@ export class BufyManager {
 
     /** Releases everything owned by a webContents (destroyed / navigated / crashed / view removed). */
     releaseOwner = (ownerId: number) => {
-        this.globalKeys?.releaseOwner(ownerId);
-        this.shortcuts?.releaseOwner(ownerId);
+        this.keys?.releaseOwner(ownerId);
         this.overlay?.releaseOwner(ownerId);
         clearTrayVoiceStatus(ownerId);
         this.overlayLimiter.forget(ownerId);
@@ -226,7 +235,7 @@ export class BufyManager {
     // ---- handlers ----
 
     handleGetCapabilities = async (): Promise<BufyCapabilities> => {
-        const keys = await this.globalKeys!.getStatus();
+        const keys = await this.keys!.getStatus();
         const platform = process.platform;
         const win = platform === 'win32' || platform === 'darwin';
         return {
@@ -236,9 +245,13 @@ export class BufyManager {
             overlayExcludedFromCapture: win,
             overlayFollowsWindow: this.followsWindow,
             globalKeys: keys.available,
+            globalKeysBackend: keys.backend,
             globalKeysReason: keys.reason,
+            keyCapture: keys.available && this.keys!.keyCaptureSupported,
             globalKeysPermission: keys.permission,
-            shortcuts: true,
+
+            // Electron's globalShortcut elsewhere; on Wayland only through the portal
+            shortcuts: !this.keys!.isWayland || keys.available,
             tray: Tray.isAvailable(),
         };
     };
@@ -265,14 +278,14 @@ export class BufyManager {
         return {ok: true};
     };
 
-    private handleRegisterPtt = async (sender: TrustedSender, event: AnyEvent, raw: unknown): Promise<BufyResult> => {
+    private handleRegisterPtt = async (sender: TrustedSender, event: AnyEvent, raw: unknown): Promise<BufyResult<BindingInfo>> => {
         const v = validateArg<PushToTalkOptions>(pushToTalkSchema, raw);
         if (isFailure(v)) {
             return v;
         }
         this.watch(sender, event);
         const id = sender.webContentsId;
-        return this.globalKeys!.registerPtt(
+        return this.keys!.registerPtt(
             id,
             v.value.key,
             v.value.modifiers,
@@ -281,15 +294,16 @@ export class BufyManager {
         );
     };
 
-    private handleUnregisterPtt = (sender: TrustedSender): BufyResult => this.globalKeys!.unregisterPtt(sender.webContentsId);
+    private handleUnregisterPtt = (sender: TrustedSender): BufyResult => this.keys!.unregisterPtt(sender.webContentsId);
 
-    private handleRegisterShortcut = (sender: TrustedSender, event: AnyEvent, raw: unknown): BufyResult => {
+    private handleRegisterShortcut = (sender: TrustedSender, event: AnyEvent, raw: unknown): Promise<BufyResult<BindingInfo>> | BufyFailure => {
         const v = validateArg<ShortcutOptions>(shortcutSchema, raw);
         if (isFailure(v)) {
             return v;
         }
         this.watch(sender, event);
-        return this.shortcuts!.register(sender.webContentsId, v.value.id, v.value.accelerator);
+        const id = sender.webContentsId;
+        return this.keys!.registerShortcut(id, v.value.id, v.value.accelerator, () => this.sendTo(id, CH.EVENT_SHORTCUT, v.value.id));
     };
 
     private handleUnregisterShortcut = (sender: TrustedSender, event: AnyEvent, raw: unknown): BufyResult => {
@@ -297,13 +311,18 @@ export class BufyManager {
         if (isFailure(v)) {
             return v;
         }
-        return this.shortcuts!.unregister(sender.webContentsId, v.value);
+        return this.keys!.unregisterShortcut(sender.webContentsId, v.value);
     };
 
     private handleCaptureNextKey = (sender: TrustedSender, event: AnyEvent, raw: unknown): Promise<BufyResult<{captured: CapturedKey}>> | BufyFailure => {
         const v = validateArg<{timeoutMs?: number}>(captureSchema, raw ?? {});
         if (isFailure(v)) {
             return v;
+        }
+
+        if (this.keys!.isWayland) {
+            // no global input hook on Wayland: the plugin should register a binding and let the system dialog assign the key
+            return this.keys!.captureNextKey(sender.webContentsId, v.value.timeoutMs);
         }
 
         // Capturing reads the next *global* key press: only offer it to the focused page, and only while the
@@ -313,10 +332,12 @@ export class BufyManager {
         }
 
         this.watch(sender, event);
-        return this.globalKeys!.captureNextKey(sender.webContentsId, v.value.timeoutMs);
+        return this.keys!.captureNextKey(sender.webContentsId, v.value.timeoutMs);
     };
 
-    private handleCancelCapture = (sender: TrustedSender): BufyResult => this.globalKeys!.cancelCapture(sender.webContentsId);
+    private handleCancelCapture = (sender: TrustedSender): BufyResult => this.keys!.cancelCapture(sender.webContentsId);
+
+    private handleOpenShortcutSettings = (): Promise<BufyResult> => this.keys!.openShortcutSettings();
 
     private handleOpenAccessibilitySettings = async (): Promise<BufyResult> => {
         if (process.platform !== 'darwin') {
