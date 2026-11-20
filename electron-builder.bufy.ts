@@ -35,6 +35,12 @@ const bufyFiles = [
     'node_modules/sax/**/*',
 ];
 
+// Upstream templates plus the legacy `mattermost-desktop` command and an upgrade-safe removal script.
+const bufyScripts = {
+    afterInstall: 'resources/linux/bufy/after-install.tpl',
+    afterRemove: 'resources/linux/bufy/after-remove.tpl',
+};
+
 // keep upstream's `{from: 'dist'}` file set last
 const baseFiles: unknown[] = base.files;
 const distSet = baseFiles.filter((f) => typeof f !== 'string');
@@ -62,11 +68,13 @@ const config = {
         ...base.deb,
         artifactName: 'mattermost-desktop-bufy_${version}-1_${arch}.${ext}',
         depends: [...base.deb.depends, 'libxt6'], // uiohook-napi links libXt
+        ...bufyScripts,
         fpm: ['--conflicts', 'mattermost-desktop', '--replaces', 'mattermost-desktop', '--provides', 'mattermost-desktop'],
     },
     rpm: {
         ...base.rpm,
         artifactName: 'mattermost-desktop-bufy-${version}.${arch}.${ext}',
+        ...bufyScripts,
         fpm: [...base.rpm.fpm, '--depends', 'libXt', '--conflicts', 'mattermost-desktop', '--replaces', 'mattermost-desktop', '--provides', 'mattermost-desktop'],
     },
 

@@ -62,6 +62,10 @@ The app keeps using `~/.config/Mattermost` (same as the stock app), so servers a
 (`libfuse2`) or `--appimage-extract-and-run`. Global keys work on X11, and on Wayland through the desktop portal (see below). The deb depends on `libxt6`, the
 rpm on `libXt` (pulled in automatically; the AppImage/tar.gz need it installed: `apt install libxt6` / `dnf install libXt`).
 
+The deb/rpm install both `/usr/bin/com.Mattermost.Desktop` and the old `/usr/bin/mattermost-desktop` command (stock <= 6.3 used that name;
+upgrading used to leave it dangling). Their install/remove scripts live in `resources/linux/bufy/` (upstream templates plus that alias, and
+a remove script that only cleans up on a real uninstall, not on upgrades).
+
 ### Windows
 
 Run `mattermost-desktop-bufy-6.4.0-win-x64-setup.exe` (per-user install, no admin needed, choose the folder on the second page), or unzip
