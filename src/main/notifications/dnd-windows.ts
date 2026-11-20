@@ -15,7 +15,14 @@ function getWindowsDoNotDisturb() {
         return false;
     }
 
-    const focusAssistValue = getFocusAssist().value;
+    // [bufy] Windows packages cross-built in Docker/Linux cannot compile this addon; fail soft instead of
+    // breaking every notification. See docs/bufy/BUILD.md.
+    let focusAssistValue;
+    try {
+        focusAssistValue = getFocusAssist().value;
+    } catch {
+        return false;
+    }
     switch (focusAssistValue) {
     case 2:
         return true;
