@@ -3,7 +3,7 @@
 #
 #   ./scripts/bufy-build-mac.sh [arm64|x64|universal]     (default: the Mac's own architecture)
 #
-# Output: release/bufy/mattermost-desktop-bufy-<version>-mac-<arch>.zip (+ .dmg when hdiutil works)
+# Output: release/bufy/mattermost-desktop-bufy-<version>-bufy.<N>-mac-<arch>.zip (+ .dmg when hdiutil works)
 # Why not Docker: macOS packaging needs codesign/hdiutil and the macOS SDK; native modules must be built on macOS.
 set -euo pipefail
 
@@ -51,7 +51,9 @@ codesign --verify --deep --strict "$APP"
 VERSION="$(node -p "require('./package.json').version")"
 OUT="release/bufy"
 mkdir -p "$OUT"
-BASE="$OUT/mattermost-desktop-bufy-$VERSION-mac-$ARCH"
+BUFY_BUILD="$(sed -n "s/^const BUFY_BUILD = '\\(.*\\)';/\\1/p" electron-builder.bufy.ts)"
+[ -n "$BUFY_BUILD" ] || { echo "BUFY_BUILD not found in electron-builder.bufy.ts" >&2; exit 1; }
+BASE="$OUT/mattermost-desktop-bufy-$VERSION-bufy.$BUFY_BUILD-mac-$ARCH"
 rm -f "$BASE.zip" "$BASE.dmg"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$BASE.zip"
 if hdiutil create -volname "Mattermost (Bufy)" -srcfolder "$APP" -ov -format UDZO "$BASE.dmg" >/dev/null 2>&1; then
