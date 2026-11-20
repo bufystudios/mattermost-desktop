@@ -45,6 +45,7 @@ import {parseURL} from 'common/utils/url';
 import {ipcValidate} from 'common/Validator';
 import AppVersionManager from 'main/AppVersionManager';
 import AutoLauncher from 'main/AutoLauncher';
+import BufyManager from 'main/bufy/manager'; // [bufy]
 import {configPath, updatePaths} from 'main/constants';
 import CriticalErrorHandler from 'main/CriticalErrorHandler';
 import DeveloperMode from 'main/developerMode';
@@ -279,6 +280,8 @@ function initializeInterCommunicationEventListeners() {
     ipcMain.handle(GET_FULL_SCREEN_STATUS, (event: IpcMainInvokeEvent) => {
         return BrowserWindow.fromWebContents(event.sender)?.isFullScreen();
     });
+
+    BufyManager.init(); // [bufy]
 }
 
 async function initializeAfterAppReady() {

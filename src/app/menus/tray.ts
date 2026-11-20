@@ -10,12 +10,14 @@ import MessageModal from 'app/mainWindow/modals/messageModal';
 import ModalManager from 'app/mainWindow/modals/modalManager';
 import {ModalConstants} from 'common/constants';
 import ServerManager from 'common/servers/serverManager';
+import {getVoiceTrayMenuTemplate} from 'main/bufy/trayStatus'; // [bufy]
 import {localizeMessage} from 'main/i18nManager';
 import {getLocalPreload} from 'main/utils';
 
 export default function createTrayMenu() {
     const servers = ServerManager.getOrderedServers();
     const template: MenuItemConstructorOptions[] = [
+        ...getVoiceTrayMenuTemplate(), // [bufy]
         ...servers.slice(0, 9).map((server) => {
             return {
                 label: server.name.length > 50 ? `${server.name.slice(0, 50)}...` : server.name,

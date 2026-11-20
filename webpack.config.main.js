@@ -17,6 +17,7 @@ module.exports = merge(base, {
         'registry-js': 'require("registry-js")',
         'cf-prefs': 'require("cf-prefs")',
         koffi: 'require("koffi")',
+        'uiohook-napi': 'require("uiohook-napi")', // [bufy]
     },
     externalsPresets: {
         electronMain: true,

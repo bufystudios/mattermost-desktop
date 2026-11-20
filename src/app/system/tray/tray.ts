@@ -10,6 +10,7 @@ import AppState from 'common/appState';
 import {UPDATE_APPSTATE_TOTALS} from 'common/communication';
 import Config from 'common/config';
 import {Logger} from 'common/log';
+import {applyVoiceBadge, applyVoiceTooltip} from 'main/bufy/trayStatus'; // [bufy]
 import {localizeMessage} from 'main/i18nManager';
 
 const assetsDir = path.resolve(app.getAppPath(), 'assets');
@@ -121,9 +122,13 @@ export class TrayIcon {
 
         this.status = status;
         this.message = message;
-        this.tray.setImage(this.images[status]);
-        this.tray.setToolTip(message);
+        this.tray.setImage(applyVoiceBadge(this.images[status]) ?? this.images[status]); // [bufy]
+        this.tray.setToolTip(applyVoiceTooltip(message)); // [bufy]
     };
+
+    // [bufy] used by main/bufy to re-render the icon/tooltip after a voice status change
+    refresh = () => this.update(this.status, this.message);
+    isAvailable = () => Boolean(this.tray && !this.tray.isDestroyed());
 
     // Linux note: the click event was fixed in Electron v23, but only fires when the OS supports StatusIconLinuxDbus
     // There is a fallback case that will make sure the icon is displayed, but will only support the context menu

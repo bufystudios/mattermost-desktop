@@ -34,7 +34,7 @@ const buildConfig: BuildConfig = {
     academyLink: DEFAULT_ACADEMY_LINK,
     upgradeLink: DEFAULT_UPGRADE_LINK,
     enableServerManagement: true,
-    enableUpdateNotifications: true,
+    enableUpdateNotifications: false, // [bufy] never point users at stock releases; see docs/bufy/README.md
     updateNotificationURL: 'https://releases.mattermost.com/desktop',
     macAppStoreUpdateURL: 'macappstore://apps.apple.com/us/app/mattermost-desktop/id1614666244',
     windowsStoreUpdateURL: 'ms-windows-store://pdp/?productid=XP8BR8MH3LPKLT',

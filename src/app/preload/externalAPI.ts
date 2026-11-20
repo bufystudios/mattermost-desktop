@@ -56,6 +56,7 @@ import {
     WINDOW_CLOSE,
     UPDATE_POPOUT_TITLE_TEMPLATE,
 } from 'common/communication';
+import {withBufyAPI} from 'main/bufy/preloadAPI'; // [bufy]
 
 import type {ExternalAPI} from 'types/externalAPI';
 
@@ -154,7 +155,7 @@ const desktopAPI: DesktopAPI = {
     onPopoutClosed: (listener) => createListener(POPOUT_CLOSED, listener),
     updatePopoutTitleTemplate: (titleTemplate) => ipcRenderer.send(UPDATE_POPOUT_TITLE_TEMPLATE, titleTemplate),
 };
-contextBridge.exposeInMainWorld('desktopAPI', desktopAPI);
+contextBridge.exposeInMainWorld('desktopAPI', withBufyAPI(desktopAPI)); // [bufy]
 
 ipcRenderer.on(METRICS_REQUEST, async (_, name, serverId) => {
     const memory = await process.getProcessMemoryInfo();
