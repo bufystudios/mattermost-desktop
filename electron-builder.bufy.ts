@@ -11,6 +11,10 @@
 
 const base = require('./electron-builder.ts');
 
+// Fork release number (tag v<version>-bufy.<N>). It is the package build number, so rpm Release / deb revision go up
+// and apt/dnf treat a new fork release of the same upstream version as an upgrade.
+const BUFY_BUILD = '2';
+
 const ALL_PREBUILDS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-loong64', 'linux-x64', 'win32-arm64', 'win32-x64'];
 
 // uiohook-napi ships N-API prebuilds for every platform; only keep the ones of the target OS.
@@ -55,7 +59,8 @@ const config = {
         ...base.extraMetadata,
         name: 'mattermost-desktop-bufy',
     },
-    artifactName: 'mattermost-desktop-bufy-${version}-${os}-${arch}.${ext}',
+    buildNumber: BUFY_BUILD,
+    artifactName: `mattermost-desktop-bufy-\${version}-bufy.${BUFY_BUILD}-\${os}-\${arch}.\${ext}`,
     files: [...stringFiles, ...bufyFiles, ...distSet],
     asarUnpack: [...base.asarUnpack, './node_modules/uiohook-napi/prebuilds/**/*.node'],
 
@@ -66,14 +71,14 @@ const config = {
     },
     deb: {
         ...base.deb,
-        artifactName: 'mattermost-desktop-bufy_${version}-1_${arch}.${ext}',
+        artifactName: `mattermost-desktop-bufy_\${version}-${BUFY_BUILD}_\${arch}.\${ext}`,
         depends: [...base.deb.depends, 'libxt6'], // uiohook-napi links libXt
         ...bufyScripts,
         fpm: ['--conflicts', 'mattermost-desktop', '--replaces', 'mattermost-desktop', '--provides', 'mattermost-desktop'],
     },
     rpm: {
         ...base.rpm,
-        artifactName: 'mattermost-desktop-bufy-${version}.${arch}.${ext}',
+        artifactName: `mattermost-desktop-bufy-\${version}-${BUFY_BUILD}.\${arch}.\${ext}`,
         ...bufyScripts,
         fpm: [...base.rpm.fpm, '--depends', 'libXt', '--conflicts', 'mattermost-desktop', '--replaces', 'mattermost-desktop', '--provides', 'mattermost-desktop'],
     },
@@ -89,7 +94,7 @@ const config = {
         perMachine: false,
         allowToChangeInstallationDirectory: true,
         deleteAppDataOnUninstall: false, // same data dir as the stock app: never touch it
-        artifactName: 'mattermost-desktop-bufy-${version}-${os}-${arch}-setup.${ext}',
+        artifactName: `mattermost-desktop-bufy-\${version}-bufy.${BUFY_BUILD}-\${os}-\${arch}-setup.\${ext}`,
     },
 
     mac: {

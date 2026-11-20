@@ -50,11 +50,11 @@ Not built: Flatpak (needs flatpak-builder + runtimes), Windows MSI (needs WiX), 
 
 ```bash
 # Debian/Ubuntu - replaces the stock mattermost-desktop package (Conflicts/Replaces/Provides)
-sudo apt install ./release/bufy/mattermost-desktop-bufy_6.4.0-1_amd64.deb
+sudo apt install ./release/bufy/mattermost-desktop-bufy_6.4.0-2_amd64.deb
 # Fedora/RHEL/openSUSE
-sudo dnf install ./release/bufy/mattermost-desktop-bufy-6.4.0.x86_64.rpm
+sudo dnf install ./release/bufy/mattermost-desktop-bufy-6.4.0-2.x86_64.rpm
 # Any distro, no install
-chmod +x mattermost-desktop-bufy-6.4.0-linux-x86_64.AppImage && ./mattermost-desktop-bufy-6.4.0-linux-x86_64.AppImage
+chmod +x mattermost-desktop-bufy-6.4.0-bufy.2-linux-x86_64.AppImage && ./mattermost-desktop-bufy-6.4.0-bufy.2-linux-x86_64.AppImage
 # or unpack the .tar.gz and run ./mattermost-desktop-bufy-*/com.Mattermost.Desktop
 ```
 
@@ -68,7 +68,7 @@ a remove script that only cleans up on a real uninstall, not on upgrades).
 
 ### Windows
 
-Run `mattermost-desktop-bufy-6.4.0-win-x64-setup.exe` (per-user install, no admin needed, choose the folder on the second page), or unzip
+Run `mattermost-desktop-bufy-6.4.0-bufy.2-win-x64-setup.exe` (per-user install, no admin needed, choose the folder on the second page), or unzip
 the `.zip` and run `Mattermost.exe`. The installer is **unsigned**, so SmartScreen shows "Windows protected your PC": **More info → Run anyway**.
 Servers/sessions are shared with the stock app (`%APPDATA%\Mattermost`). If the stock MSI is installed, uninstall it first (both
 register the `mattermost://` handler and share one single-instance lock).
@@ -114,3 +114,10 @@ Windows add-ons (`registry-js`, `koffi`, `uiohook-napi`) are prebuilt N-API/FFI 
 - *"cannot find path for dependency @koromix/koffi-…"* warnings are harmless (only the target platform's package is shipped).
 - Smoke-test a Linux build headlessly: `xvfb-run -a node scripts/bufy-smoke.js <extracted-app>/com.Mattermost.Desktop <extracted-app>/resources/app.asar`
   (see the script header).
+
+## Releasing
+
+Bump `BUFY_BUILD` in `electron-builder.bufy.ts` for each fork release (tag `v<upstream version>-bufy.<BUFY_BUILD>`). It becomes the
+rpm Release / deb revision, so apt/dnf upgrade over the previous fork build of the same upstream version. Build Linux + Windows with
+`./docker/build.sh all --arch x64,arm64`, macOS with `scripts/bufy-build-mac.sh arm64` on a Mac, then publish all of `release/bufy/`
+plus `SHA256SUMS.txt` as a GitHub prerelease.
