@@ -29,6 +29,7 @@ export type DesktopEntryFs = {
     readFileSync: (p: string, enc: 'utf8') => string;
     writeFileSync: (p: string, data: string, opts?: {mode?: number}) => void;
     mkdirSync: (p: string, opts: {recursive: true}) => unknown;
+    unlinkSync: (p: string) => void;
 };
 
 export type DesktopEntryEnv = {
@@ -79,16 +80,31 @@ export type EnsureResult = {
 export function ensureDesktopEntry(appId: string, ctx: DesktopEntryEnv): EnsureResult {
     const f = ctx.fs ?? fs;
     const dirs = dataDirs(ctx.env, ctx.homedir);
-    const exec = ctx.env.APPIMAGE || ctx.execPath;
+
+    // APPIMAGE is inherited by child processes, so only trust it when we are the AppImage's own binary
+    // (our executable lives under its APPDIR). Otherwise a launcher that is itself an AppImage would end up in Exec.
+    const ownAppImage = ctx.env.APPIMAGE && ctx.env.APPDIR && ctx.execPath.startsWith(ctx.env.APPDIR);
+    const exec = ownAppImage ? ctx.env.APPIMAGE! : ctx.execPath;
     const userFile = entryPath(dirs[0], appId);
+
+    // A packaged entry (deb/rpm in a system data dir) wins. A file we generated earlier in the user dir would shadow
+    // it, so remove that one.
+    const system = dirs.slice(1).map((dir) => entryPath(dir, appId)).find((p) => f.existsSync(p));
+    if (system) {
+        try {
+            if (f.existsSync(userFile) && f.readFileSync(userFile, 'utf8').includes(GENERATED_MARKER)) {
+                f.unlinkSync(userFile);
+            }
+        } catch (err) {
+            log.warn('could not remove the generated desktop entry', {err});
+        }
+        return {appId, state: 'installed', path: system};
+    }
 
     for (const dir of dirs) {
         const p = entryPath(dir, appId);
         if (!f.existsSync(p)) {
             continue;
-        }
-        if (p !== userFile) {
-            return {appId, state: 'installed', path: p};
         }
         try {
             const current = f.readFileSync(p, 'utf8');

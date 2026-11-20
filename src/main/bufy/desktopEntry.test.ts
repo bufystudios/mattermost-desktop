@@ -40,13 +40,29 @@ describe('bufy/desktopEntry', () => {
     });
 
     it('writes a hidden entry for AppImage/dev runs and points it at $APPIMAGE', () => {
-        const res = ensureDesktopEntry(BUFY_APP_ID, ctx({APPIMAGE: '/home/me/Apps/Mattermost.AppImage'}));
+        const res = ensureDesktopEntry(BUFY_APP_ID, ctx({APPIMAGE: '/home/me/Apps/Mattermost.AppImage', APPDIR: '/tmp/.mount_MatterX'}, '/tmp/.mount_MatterX/com.Mattermost.Desktop'));
         expect(res).toMatchObject({state: 'generated', path: userFile()});
         const text = fs.readFileSync(userFile(), 'utf8');
         expect(text).toContain('Exec=/home/me/Apps/Mattermost.AppImage %U');
         expect(text).toContain(`StartupWMClass=${BUFY_APP_ID}`);
         expect(text).toContain('NoDisplay=true');
         expect(text).toContain(GENERATED_MARKER);
+    });
+
+    it('ignores an APPIMAGE inherited from another AppImage that launched us', () => {
+        ensureDesktopEntry(BUFY_APP_ID, ctx({APPIMAGE: '/home/me/Applications/Other.AppImage', APPDIR: '/tmp/.mount_OtherY'}, '/opt/Mattermost/com.Mattermost.Desktop'));
+        const text = fs.readFileSync(userFile(), 'utf8');
+        expect(text).toContain('Exec=/opt/Mattermost/com.Mattermost.Desktop %U');
+        expect(text).not.toContain('Other.AppImage');
+    });
+
+    it('removes its own generated entry once a packaged one is installed, so it does not shadow it', () => {
+        ensureDesktopEntry(BUFY_APP_ID, ctx({}, '/a/app'));
+        expect(fs.existsSync(userFile())).toBe(true);
+        const installed = path.join(sys, 'applications', `${BUFY_APP_ID}.desktop`);
+        fs.writeFileSync(installed, '[Desktop Entry]\nName=Mattermost\n');
+        expect(ensureDesktopEntry(BUFY_APP_ID, ctx())).toEqual({appId: BUFY_APP_ID, state: 'installed', path: installed});
+        expect(fs.existsSync(userFile())).toBe(false);
     });
 
     it('is idempotent and refreshes a generated entry when the executable moved', () => {
@@ -73,6 +89,7 @@ describe('bufy/desktopEntry', () => {
                     throw new Error('read-only');
                 },
                 mkdirSync: () => undefined,
+                unlinkSync: () => undefined,
             },
         });
         expect(res.state).toBe('failed');
