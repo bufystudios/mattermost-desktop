@@ -50,9 +50,9 @@ Not built: Flatpak (needs flatpak-builder + runtimes), Windows MSI (needs WiX), 
 
 ```bash
 # Debian/Ubuntu - replaces the stock mattermost-desktop package (Conflicts/Replaces/Provides)
-sudo apt install ./release/bufy/mattermost-desktop-bufy_6.4.0-2_amd64.deb
+sudo apt install ./release/bufy/mattermost-desktop-bufy_6.4.0-3_amd64.deb
 # Fedora/RHEL/openSUSE
-sudo dnf install ./release/bufy/mattermost-desktop-bufy-6.4.0-2.x86_64.rpm
+sudo dnf install ./release/bufy/mattermost-desktop-bufy-6.4.0-3.x86_64.rpm
 # Any distro, no install
 chmod +x mattermost-desktop-bufy-6.4.0-bufy.2-linux-x86_64.AppImage && ./mattermost-desktop-bufy-6.4.0-bufy.2-linux-x86_64.AppImage
 # or unpack the .tar.gz and run ./mattermost-desktop-bufy-*/com.Mattermost.Desktop

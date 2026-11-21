@@ -13,7 +13,7 @@ const base = require('./electron-builder.ts');
 
 // Fork release number (tag v<version>-bufy.<N>). It is the package build number, so rpm Release / deb revision go up
 // and apt/dnf treat a new fork release of the same upstream version as an upgrade.
-const BUFY_BUILD = '2';
+const BUFY_BUILD = '3';
 
 const ALL_PREBUILDS = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-loong64', 'linux-x64', 'win32-arm64', 'win32-x64'];
 
