@@ -1,0 +1,20 @@
+<!-- Bufy fork: macOS DMG window background (542x353, icons at x=135/407, y=165; label plates under them). -->
+<svg xmlns="http://www.w3.org/2000/svg" width="542" height="353" viewBox="0 0 542 353">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="38%" r="80%">
+      <stop offset="0" stop-color="#1a2240"/><stop offset="0.55" stop-color="#0b1022"/><stop offset="1" stop-color="#04060d"/>
+    </radialGradient>
+    <radialGradient id="slot" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ff6b3d" stop-opacity="0.16"/><stop offset="1" stop-color="#ff6b3d" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="542" height="353" fill="url(#bg)"/>
+  <g fill="#eef3fb" opacity="0.55">
+    <circle cx="40" cy="40" r="1"/><circle cx="210" cy="28" r="0.8"/><circle cx="330" cy="62" r="1.1"/><circle cx="505" cy="34" r="0.9"/>
+    <circle cx="470" cy="300" r="0.8"/><circle cx="60" cy="310" r="1"/><circle cx="280" cy="320" r="0.7"/><circle cx="250" cy="110" r="0.6"/>
+  </g>
+  <circle cx="135" cy="165" r="95" fill="url(#slot)"/>
+  <circle cx="407" cy="165" r="95" fill="url(#slot)"/>
+  <g fill="#eef3fb"><rect x="89" y="232" width="92" height="24" rx="5"/><rect x="359" y="232" width="96" height="24" rx="5"/></g>
+  <path d="M256 165 h22 m-8 -8 l8 8 l-8 8" fill="none" stroke="#93a1b8" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

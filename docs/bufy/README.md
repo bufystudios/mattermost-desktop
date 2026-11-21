@@ -8,7 +8,7 @@ All fork code lives in **`src/main/bufy/`**. Everything else is a minimal hook i
 marked `[bufy]` in the source so `git grep "\[bufy\]"` finds every one).
 
 Contents: [API](#api) · [Plugin example](#plugin-example) · [Security model](#security-model) · [Platform notes](#platform-notes) ·
-[Touched upstream files](#touched-upstream-files) · [Rebasing onto a new upstream release](#rebasing-onto-a-new-upstream-release) · [Tests](#tests)
+[Branding](#branding) · [Touched upstream files](#touched-upstream-files) · [Rebasing onto a new upstream release](#rebasing-onto-a-new-upstream-release) · [Tests](#tests)
 
 ## API
 
@@ -199,9 +199,26 @@ automatically, so there is nothing to clean up after a crash.
   `openAccessibilitySettings()` triggers the prompt and opens the pane. Screen Recording (for sharing) is requested by the existing Calls flow.
 - Border bounds on bare X11 (no window manager) are reported by Chromium 1 px smaller than the display; harmless.
 
+## Branding
+
+The app, tray and menu bar icons and the in-app logo are the **planet-mining** branding (our game), not Mattermost's. `productName`, `appId`
+and the server web content are unchanged (see "Naming / coexistence").
+
+- **Sources:** `planet-mining/assets/branding/` in the game repo (`icon.svg` app icon, `mark.svg` symbol, `logo.html` lockup; its README says how to render them).
+- **Raster assets** in `src/assets/` keep upstream's file names, sizes and formats and are regenerated with
+  `scripts/bufy-branding/generate.sh [path to planet-mining/assets/branding]` (headless Chrome + ImageMagick; default path is `../planet-mining/assets/branding`
+  next to the repo checkout). It renders `icon.svg` with a transparent background into `icon.ico`, `icon.icns` (PNG-based, `icns.py`), `linux/app_icon.png`,
+  `appicon_48.png`, `appicon_with_spacing_32.png` and `thumbnails/mattermost.svg` (the app-update thumbnail), plus `osx/DMG_BG.png` from `dmg_bg.svg`.
+- **Tray / menu bar icons** (`linux/top_bar_*`, `windows/tray_*.ico`, `osx/menuIcons/*Template*`) are a monochrome silhouette drawn on a 32 px grid
+  in `tray.py`: the planet with a 90° wedge cut from the top and the station hanging on its tether. Upstream conventions are kept: Linux dark `#323130` / light white,
+  Windows dark black 70 % / light white 90 %, mention = red `#FF3B30` badge, unread = blue `#579EFF` dot (bottom right, with a transparent gap),
+  macOS Template images black + alpha with a black unread dot. `tray.py` also writes the vector sources `resources/windows/tray*.svg`.
+- **In-app:** `Images/PlanetMark.tsx` is a simplified colour mark (coordinates from `mark.svg`); `Images/Logo.tsx` is the header lockup (mark + "PLANET MINING",
+  Russo One glyphs converted to paths, no web font). The loading screen (`LoadingAnimation`) shows the mark with an intro, a pulsing core and a dropping station.
+
 ## Touched upstream files
 
-New (ours): `src/main/bufy/**`, `docs/bufy/**`, `docker/**`, `scripts/bufy-*.{sh,js}` (incl. `bufy-wayland-live.js`), `electron-builder.bufy.ts`, `patches/uiohook-napi+1.5.5.patch`.
+New (ours): `src/main/bufy/**`, `docs/bufy/**`, `docker/**`, `scripts/bufy-*.{sh,js}` (incl. `bufy-wayland-live.js`), `scripts/bufy-branding/**`, `src/renderer/components/Images/PlanetMark.tsx`, `electron-builder.bufy.ts`, `patches/uiohook-napi+1.5.5.patch`.
 
 Edited upstream files (each change is tagged `[bufy]` except JSON/config):
 
@@ -216,6 +233,8 @@ Edited upstream files (each change is tagged `[bufy]` except JSON/config):
 | `webpack.config.main.js` | `'uiohook-napi'` and `'dbus-native'` added to externals | loaded lazily at runtime, not bundled |
 | `package.json` / `package-lock.json` | dependencies `uiohook-napi@1.5.5` (+ `node-gyp-build`), `dbus-native@0.16.3` (+ `xml2js`, `sax`, `xmlbuilder`) | native input hook; D-Bus client for the Wayland portal |
 | `patches/uiohook-napi+1.5.5.patch` | deletes the package's `binding.gyp` | uiohook ships N-API prebuilds, but `@electron/rebuild` would otherwise try to compile it from source (needs X11 dev headers) on `npm install` |
+| `src/renderer/components/Images/Logo.tsx`, `LoadingAnimation/LoadingIcon.tsx` + `LoadingAnimation.scss` + `LoadingAnimation.tsx` (animation name), `Header/Header.scss` (logo width) | planet-mining mark / lockup instead of the Mattermost logo | see "Branding" |
+| `src/assets/**` icons (app, tray, menu bar, DMG background, `thumbnails/mattermost.svg`), `resources/windows/tray*.svg` | replaced in place, same names, sizes and formats | see "Branding" |
 
 ### Updates
 

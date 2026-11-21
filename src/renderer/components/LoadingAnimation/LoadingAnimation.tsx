@@ -24,7 +24,7 @@ type Props = {
 }
 
 /**
- * A function component for rendering the animated MM logo loading sequence
+ * A function component for rendering the animated planet-mining logo loading sequence
  * @param {boolean} loading - Prop that indicates whether currently loading or not
  * @param {boolean} darkMode - Prop that indicates if dark mode is enabled
  * @param {function} onLoadingAnimationComplete - Callback function to update when internal loading animation is complete
@@ -63,7 +63,7 @@ function LoadingAnimation({
         setTimeout(() => {
             setLoadingAnimationComplete(true);
         }, ANIMATION_COMPLETION_DELAY);
-    }, 'LoadingAnimation__compass-shrink');
+    }, 'LoadingAnimation__mark-intro');
 
     // listen for end of final css logo fade/shrink animation sequence
     useAnimationEnd<HTMLDivElement>(loadingIconContainerRef, () => {
