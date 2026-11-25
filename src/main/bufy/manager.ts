@@ -9,13 +9,14 @@
 // that webContents is destroyed, navigates away, crashes, or its view/server is removed, and on app quit.
 
 import type {IpcMainEvent, IpcMainInvokeEvent, WebContents} from 'electron';
-import {app, desktopCapturer, globalShortcut, ipcMain, screen, shell, systemPreferences, webContents as allWebContents} from 'electron';
+import {app, desktopCapturer, globalShortcut, ipcMain, screen, session, shell, systemPreferences, webContents as allWebContents} from 'electron';
 
 import createTrayMenu from 'app/menus/tray';
 import Tray from 'app/system/tray/tray';
 import {VIEW_REMOVED} from 'common/communication';
 import {Logger} from 'common/log';
 import ViewManager from 'common/views/viewManager';
+import PermissionsManager from 'main/security/permissionsManager';
 
 import {GlobalKeys} from './globalKeys';
 import type {HookLike} from './globalKeys';
@@ -42,6 +43,7 @@ import type {
     VoiceStatus,
 } from './shared';
 import {ShortcutRegistry} from './shortcuts';
+import {createSystemPickerHandler} from './systemPicker';
 import {clearTrayVoiceStatus, configureTrayStatus, setTrayVoiceStatus} from './trayStatus';
 import {
     captureSchema,
@@ -111,6 +113,14 @@ export class BufyManager {
             createWindow: createOverlayWindow,
             boundsProvider,
         }, (ownerId) => this.sendTo(ownerId, CH.EVENT_SHARE_BORDER_LOST));
+
+        // Wayland: getDisplayMedia shows the compositor's picker once (no own source list, no second portal session).
+        if (this.keys.isWayland) {
+            session.defaultSession.setDisplayMediaRequestHandler(createSystemPickerHandler({
+                webContentsFromFrame: (frame) => allWebContents.fromFrame(frame as never) ?? undefined,
+                askPermission: (webContentsId, requestingUrl) => PermissionsManager.doPermissionRequest(webContentsId, 'display-capture', {requestingUrl, isMainFrame: true}),
+            }));
+        }
 
         configureTrayStatus({
             onAction: (ownerId, action) => this.sendTo(ownerId, CH.EVENT_TRAY_ACTION, action),
@@ -238,10 +248,13 @@ export class BufyManager {
         const keys = await this.keys!.getStatus();
         const platform = process.platform;
         const win = platform === 'win32' || platform === 'darwin';
+        const wayland = this.keys!.isWayland;
         return {
             version: BUFY_API_VERSION,
             platform,
-            overlay: true,
+
+            // Wayland: the border can neither find the picked source nor be placed or kept on top (wayland.md)
+            overlay: !wayland,
             overlayExcludedFromCapture: win,
             overlayFollowsWindow: this.followsWindow,
             globalKeys: keys.available,
@@ -253,6 +266,7 @@ export class BufyManager {
             // Electron's globalShortcut elsewhere; on Wayland only through the portal
             shortcuts: !this.keys!.isWayland || keys.available,
             tray: Tray.isAvailable(),
+            screenSharePicker: wayland ? 'system' : 'app',
         };
     };
 
@@ -260,6 +274,10 @@ export class BufyManager {
         const limited = this.limited(this.overlayLimiter, sender);
         if (limited) {
             return limited;
+        }
+        if (this.keys!.isWayland) {
+            // Verifying the source would call desktopCapturer.getSources(), i.e. open the portal picker again.
+            return {ok: false, error: 'unsupported', message: 'wayland'};
         }
         const v = validateArg<ShareBorderOptions>(shareBorderSchema, raw);
         if (isFailure(v)) {

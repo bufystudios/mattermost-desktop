@@ -1,4 +1,4 @@
-# Wayland: global push-to-talk and shortcuts
+# Wayland: global push-to-talk, shortcuts and screen sharing
 
 Wayland has no API for reading keys globally (that is the point of the protocol), so the X11 hook (`uiohook-napi`) cannot work there.
 On Linux Wayland the Bufy API therefore uses the **xdg-desktop-portal GlobalShortcuts** interface
@@ -8,7 +8,7 @@ events for push-to-talk. Overview of the API: [README.md](README.md#global-keys)
 
 Contents: [Backend selection](#backend-selection) · [What the user sees](#what-the-user-sees) · [API differences](#api-differences-on-the-portal-backend) ·
 [App id](#app-id-so-the-compositor-remembers-the-keys) · [Compositor support](#compositor-support) · [Electron's built-in portal path](#why-not-electrons-globalshortcut) ·
-[Mouse buttons](#mouse-buttons) · [Share-border overlay](#share-border-overlay-on-wayland) · [Implementation](#implementation)
+[Mouse buttons](#mouse-buttons) · [Screen sharing](#screen-sharing-on-wayland-one-picker) · [Share-border overlay](#share-border-overlay-on-wayland) · [Implementation](#implementation)
 
 ## Backend selection
 
@@ -106,9 +106,52 @@ binds `ptt` **without a suggested trigger**; the user assigns a key in the syste
 map the mouse button to a rarely used key such as `F13` with the device layer (`input-remapper`, `libratbag`/Piper, the vendor tool) and assign that key to `ptt`.
 `requestedTrigger` is absent in the result for mouse buttons so a plugin can explain this.
 
+## Screen sharing on Wayland: one picker
+
+On Wayland Chromium captures through the xdg-desktop-portal **ScreenCast** interface, and every capture session shows the compositor's picker
+(KDE: "Screen Sharing Requested"). Measured on KDE Plasma 6.8.2 / xdg-desktop-portal 1.22.1 with a D-Bus monitor and the KWin window list
+(Voice Rooms 0.8.3 against a local Mattermost, desktop build of `bufy/main` at BUFY_BUILD 3):
+
+| step of the old flow | portal session | what the user sees |
+|---|---|---|
+| plugin dialog calls `desktopAPI.getDesktopSources()` for its thumbnail grid | 1st (`types: monitor+window`, closed again right after the thumbnail) | the KDE picker, on top of our dialog, with its own taskbar entry. The grid then shows **one** unnamed thumbnail (`window:9:0:s`) to click again |
+| `getUserMedia({chromeMediaSourceId})` with that id | 2nd | nothing when the picker's "Allow the application to do this without asking next time" box stayed ticked (WebRTC passes the `restore_token` it got for that id); **the picker again** when it was unticked |
+| `applyConstraints` on the track (the plugin's Auto quality lowers the capture right after the start, and on every quality change) | a new one per call: Chromium restarts the capture | silent with a restore token, **the picker again** without one |
+| `showShareBorder({sourceId})` | none: the Wayland id `window:9:0:s` failed validation (`invalid-argument`), so no frame window was ever created. Had it passed, its `getSources()` verification would have opened one more session | — |
+
+So the "three windows" were our Go Live dialog plus up to two (with quality changes, more) KDE pickers. The share-border overlay was not one of them.
+
+What the fork does since API **1.2.0** on Linux Wayland (`screenSharePicker: 'system'` in the capabilities):
+
+* `session.defaultSession.setDisplayMediaRequestHandler` (installed only on Wayland, `src/main/bufy/systemPicker.ts`) answers
+  `navigator.mediaDevices.getDisplayMedia()` from a trusted server page (same trust rule as the rest of the API, plus the app's `display-capture`
+  permission) with the placeholder source **`screen:0:0`**. WebRTC's PipeWire capturer treats source 0 as "nothing selected": it never looks up a restore
+  token for it, so it opens exactly **one** portal session, whose picker is the only one the user sees (monitor or window, the user decides there).
+  No audio is granted (Linux has no loopback capture; nothing changes for system audio).
+* `getDisplayMedia()` resolves **before** the user picked. The first frame arrives when a source was chosen (the track's settings then show its real
+  size); a closed picker ends the track (`ended`). A page should wait for one of the two.
+* **Do not call `applyConstraints` on that track.** Chromium restarts the capture for every call (measured: even a frame-rate-only change), and the
+  restart asks the portal again: WebRTC stores the restore token under the id of the capturer that received it, not under the requested id, so the
+  restart has none, whatever the user ticked. Ask for the size/frame rate up front and lower them in the encoder
+  (`RTCRtpSender.setParameters`: `scaleResolutionDownBy`, `maxFramerate`). Voice Rooms does exactly this (`CapturedShare.fixed` in the plugin).
+* `getDesktopSources()` still works on Wayland (the Calls plugin uses it), and still shows the picker.
+* No share border on Wayland (`overlay: false`, `showShareBorder` → `unsupported`), see below. The plugin's "you're live" pill, the red avatar ring,
+  the tab title and the tray status (`setVoiceStatus({live: true})`) show that a share is running.
+* The picker says "Choose what to share with an **unidentifiable application**": the portal identifies apps per D-Bus connection, and Chromium's
+  ScreenCast connection is not the one our GlobalShortcuts code registers the app id on (`Registry.Register` only applies to the calling connection).
+  Fixing that would need a Chromium change.
+
+How it was verified (reproducible): run the dev build against a local server with the harness pattern of `scripts/bufy-wayland-live.js`, watch
+`dbus-monitor --session "interface='org.freedesktop.portal.ScreenCast'"` for `CreateSession`/`Start` and list the KWin windows with a one-shot KWin
+script (`workspace.windowList()` over `org.kde.KWin /Scripting`). The picker can be answered from a script with a `/dev/uinput` virtual pointer
+(Fedora gives the logged-in user access) after checking that the picker is the active window. With the change: Go Live → one session, one picker →
+live at Auto 1440p60; Manual 720p30 and back to Auto while live → no new session; Stop and Go Live again → the picker again (a new choice);
+closing the picker → back to idle without an error.
+
 ## Share-border overlay on Wayland
 
-The overlay stays at phase-A behaviour on Wayland: `overlayFollowsWindow: false`, and window shares frame a display. What was investigated for "frame the monitor the user actually chose":
+Since 1.2.0 there is **no** border on Wayland (`overlay: false`): the overlay cannot know what the user picked in the portal, cannot be placed or kept
+on top, and verifying a source would open the picker again. What was investigated earlier:
 
 * The monitor choice happens in Chromium's own ScreenCast portal session (PipeWire). The stream metadata that includes the monitor's position/size
   (`streams[].position`, `size` from the ScreenCast `Start` response) is only returned to the client that created that session, i.e. Chromium's D-Bus connection.
@@ -120,8 +163,8 @@ The overlay stays at phase-A behaviour on Wayland: `overlayFollowsWindow: false`
   absolute position, no layer-shell in Chromium) and "always on top" is a compositor decision. On KDE the realistic way would be a KWin script (loaded over
   `org.kde.KWin /Scripting`, the way `kdotool` works) that reads the outputs and pins our overlay window above everything on the right output. That is a compositor-privileged
   operation and KDE-only, so it was **not** implemented; it would be a separate decision.
-* `desktopCapturer.getSources()` on Wayland goes through the portal picker as well, so the `sourceId` verification in `showShareBorder` may re-open the picker or
-  not find the source. This was not exercised (it needs a human click) and is the first thing to check if the border is wanted on Wayland.
+* `desktopCapturer.getSources()` goes through the portal picker on Wayland (verified, see the table above), and the Wayland source ids
+  (`window:9:0:s`) do not match the `screen:`/`window:` pattern `showShareBorder` validates.
 
 ## Implementation
 
@@ -133,6 +176,7 @@ The overlay stays at phase-A behaviour on Wayland: `overlayFollowsWindow: false`
 | `src/main/bufy/portalBus.ts` | `PortalBus` on [`dbus-native`](https://github.com/sidorares/dbus-native) 0.16.3 (MIT, pure JS, only dependency `xml2js`; loaded lazily; installs the error listener the library does not) |
 | `src/main/bufy/portalTrigger.ts` | `KeyboardEvent.code` / Electron accelerator → portal `preferred_trigger` (`CTRL+SHIFT+m`, `F13`, `KP_0`, ...) |
 | `src/main/bufy/desktopEntry.ts` | app id constant and the generated `.desktop` file |
+| `src/main/bufy/systemPicker.ts` | Wayland screen sharing: the `getDisplayMedia` handler that grants the placeholder source (one portal picker) |
 | `src/main/bufy/testing/fakePortalBus.ts` | in-memory portal for the unit tests |
 | `scripts/bufy-wayland-live.js` | live check in a real Wayland session |
 

@@ -10,7 +10,7 @@
 //   const bufy = (window as BufyWindow).desktopAPI?.bufy;
 //   if (bufy) { const caps = await bufy.getCapabilities(); /* ... */ }
 
-export declare const BUFY_API_VERSION: '1.1.0';
+export declare const BUFY_API_VERSION: '1.2.0';
 
 export type BufyErrorCode =
     | 'untrusted-sender' // call did not come from a trusted Mattermost server page
@@ -41,7 +41,7 @@ export type BufyCapabilities = {
     version: string;
     platform: 'win32' | 'darwin' | 'linux' | string;
 
-    /** Screen-share border overlay can be shown. */
+    /** Screen-share border overlay can be shown (`false` on Linux Wayland: see `screenSharePicker`). */
     overlay: boolean;
 
     /** Overlay uses setContentProtection so it is not visible in the captured stream (Windows/macOS only). */
@@ -78,7 +78,23 @@ export type BufyCapabilities = {
 
     /** Tray icon exists and can show voice status. */
     tray: boolean;
+
+    /**
+     * How a page should capture the screen (API 1.2.0+; absent on older builds, treat that as `app`).
+     * `app`: list the sources yourself with `desktopAPI.getDesktopSources()` and capture the chosen id with
+     * `getUserMedia({chromeMediaSource: 'desktop'})` (Windows, macOS, Linux X11).
+     * `system` (Linux Wayland): the compositor's portal picker is the only picker. Do not call `getDesktopSources()`
+     * (it opens the picker for a thumbnail, and the capture may open it again); call
+     * `navigator.mediaDevices.getDisplayMedia({video, audio: false})` instead: it opens the system picker once. The promise
+     * resolves before the user has chosen; the first frame arrives once a source is picked, and the track ends if the
+     * picker is cancelled. Never call `applyConstraints` on that track: Chromium restarts the capture for it, and the
+     * portal asks again. Ask for the size and frame rate you need up front, and lower them in the encoder
+     * (`RTCRtpSender.setParameters`: `scaleResolutionDownBy`, `maxFramerate`).
+     */
+    screenSharePicker?: ScreenSharePicker;
 };
+
+export type ScreenSharePicker = 'app' | 'system';
 
 export type ShareBorderOptions = {
 

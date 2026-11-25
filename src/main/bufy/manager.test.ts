@@ -31,6 +31,7 @@ const mockResolve = jest.fn();
 const mockSystemPrefs = {isTrustedAccessibilityClient: jest.fn().mockReturnValue(true)};
 const mockOverlayShow = jest.fn();
 const mockConnectBus = jest.fn();
+const mockSetDisplayMedia = jest.fn();
 
 jest.mock('electron', () => ({
     app: {on: (ev: string, cb: () => void) => mockAppEmitter.on(ev, cb)},
@@ -45,9 +46,10 @@ jest.mock('electron', () => ({
     },
     ipcMain: {handle: (ch: string, fn: (...args: unknown[]) => unknown) => mockHandlers.set(ch, fn)},
     screen: {getAllDisplays: () => [{id: 60, bounds: {x: 0, y: 0, width: 1920, height: 1080}}], getPrimaryDisplay: () => ({id: 60, bounds: {x: 0, y: 0, width: 1920, height: 1080}}), screenToDipRect: (_: unknown, r: unknown) => r},
+    session: {defaultSession: {setDisplayMediaRequestHandler: (...a: unknown[]) => mockSetDisplayMedia(...a)}},
     shell: {openExternal: jest.fn().mockResolvedValue(undefined)},
     systemPreferences: {isTrustedAccessibilityClient: (...a: unknown[]) => mockSystemPrefs.isTrustedAccessibilityClient(...a)},
-    webContents: {fromId: (id: number) => mockWebContentsById.get(id)},
+    webContents: {fromId: (id: number) => mockWebContentsById.get(id), fromFrame: jest.fn()},
     nativeImage: {},
     BrowserWindow: jest.fn(),
 }));
@@ -59,6 +61,7 @@ jest.mock('app/system/tray/tray', () => ({
         setMenu: (...a: unknown[]) => mockTray.setMenu(...a),
     },
 }));
+jest.mock('main/security/permissionsManager', () => ({__esModule: true, default: {doPermissionRequest: jest.fn().mockResolvedValue(true)}}));
 jest.mock('app/menus/tray', () => ({__esModule: true, default: jest.fn(() => 'menu')}));
 jest.mock('common/views/viewManager', () => ({__esModule: true, default: {on: (...a: [string, () => void]) => mockViewManager.on(...a)}}));
 jest.mock('./security', () => ({resolveTrustedSender: (...a: unknown[]) => mockResolve(...a)}));
@@ -106,6 +109,8 @@ describe('bufy/BufyManager', () => {
         mockAppEmitter.removeAllListeners();
         mockViewManager.removeAllListeners();
         mockConnectBus.mockReset();
+        mockSetDisplayMedia.mockClear();
+        mockOverlayShow.mockClear();
         mockConnectBus.mockRejectedValue(new Error('no session bus'));
         mockHook.on.mockClear();
         mockHook.start.mockClear();
@@ -190,7 +195,9 @@ describe('bufy/BufyManager', () => {
                 globalKeysPermission: 'not-required',
                 shortcuts: true,
                 tray: true,
+                screenSharePicker: 'app',
             });
+            expect(mockSetDisplayMedia).not.toHaveBeenCalled();
         });
 
         it('reports Wayland without a portal as globalKeys:false with a precise reason and no shortcuts', async () => {
@@ -378,7 +385,21 @@ describe('bufy/BufyManager', () => {
             expect(first).toMatchObject({ok: true});
             expect(await call(CH.SHOW_SHARE_BORDER, wcA, {sourceId: 'screen:1:0'})).toEqual({ok: false, error: 'rate-limited'});
             expect(await call(CH.HIDE_SHARE_BORDER, wcA)).toEqual({ok: true}); // hide is never rate limited
-            expect(await call(CH.SHOW_SHARE_BORDER, wcB, {sourceId: 'screen:1:0'})).toMatchObject({ok: true});
+        });
+
+        it('Wayland: the system picker is the only one, so no border and getDisplayMedia goes through our handler', async () => {
+            process.env.XDG_SESSION_TYPE = 'wayland';
+            reinit('linux');
+            expect(await call(CH.GET_CAPABILITIES, wcA)).toMatchObject({overlay: false, screenSharePicker: 'system'});
+            expect(mockSetDisplayMedia).toHaveBeenCalledTimes(1);
+            expect(typeof mockSetDisplayMedia.mock.calls[0][0]).toBe('function');
+
+            // showing a border would list the sources, i.e. open the portal picker again
+            const {desktopCapturer} = jest.requireMock('electron');
+            desktopCapturer.getSources.mockClear();
+            expect(await call(CH.SHOW_SHARE_BORDER, wcB, {sourceId: 'screen:1:0'})).toMatchObject({ok: false, error: 'unsupported'});
+            expect(desktopCapturer.getSources).not.toHaveBeenCalled();
+            expect(mockOverlayShow).not.toHaveBeenCalled();
         });
 
         it('limits voice status updates', async () => {
